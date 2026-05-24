@@ -1,0 +1,118 @@
+[
+  {
+    "name": "issue_refund",
+    "description": "Issues a refund for a specific transaction. Requires verified user identity and exact transaction ID. Cannot be used for transactions older than 90 days or amounts over $500 without supervisor approval.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "transaction_id": {
+          "type": "string",
+          "description": "The exact ID of the transaction to refund (e.g., 'txn_12345')"
+        },
+        "amount": {
+          "type": "number",
+          "description": "The amount to refund"
+        },
+        "reason": {
+          "type": "string",
+          "description": "Reason code for the refund: 'duplicate', 'fraud', 'customer_request', 'service_failure'"
+        }
+      },
+      "required": ["transaction_id", "amount", "reason"]
+    }
+  },
+  {
+    "name": "reset_password",
+    "description": "Triggers a password reset email for a user. Do not use if the user suspects account takeover; use lock_account instead.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "user_email": {
+          "type": "string",
+          "description": "The email address associated with the account"
+        }
+      },
+      "required": ["user_email"]
+    }
+  },
+  {
+    "name": "lock_account",
+    "description": "Immediately locks a user account to prevent unauthorized access. Use this when identity theft or account compromise is suspected.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "user_identifier": {
+          "type": "string",
+          "description": "The user's email, username, or account ID"
+        },
+        "lock_reason": {
+          "type": "string",
+          "description": "Reason for locking: 'suspected_fraud', 'user_requested', 'compliance_violation'"
+        }
+      },
+      "required": ["user_identifier", "lock_reason"]
+    }
+  },
+  {
+    "name": "escalate_to_human",
+    "description": "Escalates the ticket to a human agent. Use this when the request requires actions not available in these tools, involves legal threats, or exceeds authorization limits.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "priority": {
+          "type": "string",
+          "description": "Escalation priority: 'low', 'normal', 'high', 'urgent'"
+        },
+        "department": {
+          "type": "string",
+          "description": "Target department: 'billing', 'technical', 'security', 'legal', 'general'"
+        },
+        "summary": {
+          "type": "string",
+          "description": "A brief summary of why human intervention is needed"
+        }
+      },
+      "required": ["priority", "department", "summary"]
+    }
+  },
+  {
+    "name": "modify_subscription",
+    "description": "Changes a user's subscription plan (upgrade, downgrade, or cancel).",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "user_id": {
+          "type": "string",
+          "description": "The user's unique ID"
+        },
+        "action": {
+          "type": "string",
+          "description": "The modification action: 'upgrade', 'downgrade', 'cancel', 'pause'"
+        },
+        "target_plan": {
+          "type": "string",
+          "description": "The plan to move to (if upgrading/downgrading): 'free', 'pro', 'team', 'enterprise'"
+        }
+      },
+      "required": ["user_id", "action"]
+    }
+  },
+  {
+    "name": "verify_identity",
+    "description": "Sends a verification challenge to the user. MUST be called before performing any destructive actions (delete, refund, modify) if the user's identity is not already definitively established in the conversation context.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "method": {
+          "type": "string",
+          "description": "Verification method: 'email_otp', 'sms_otp', 'security_questions'"
+        },
+        "target": {
+          "type": "string",
+          "description": "The email or phone number to send the challenge to"
+        }
+      },
+      "required": ["method", "target"]
+    }
+  }
+]
