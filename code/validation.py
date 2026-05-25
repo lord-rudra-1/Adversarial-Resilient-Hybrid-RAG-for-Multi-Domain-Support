@@ -1,6 +1,6 @@
 import os
 from typing import List, Dict, Any
-from code.models import ActionCall
+from models import ActionCall, AgentOutput
 
 def validate_tool_calls(actions: List[ActionCall], conversation_history: List[Dict[str, str]]) -> List[ActionCall]:
     """Ensures destructive actions are preceded by identity verification."""

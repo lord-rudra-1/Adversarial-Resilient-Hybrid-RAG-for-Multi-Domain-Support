@@ -25,7 +25,7 @@ graph TD
 
 ### Components
 1. **Sanitization (`utils.py`)**: Strips control characters, normalizes whitespace, and uses regex to redact PII (SSNs, Credit Cards) *before* it enters LLM context windows.
-2. **Safety Evaluator (`safety.py`)**: A fast heuristic pre-filter followed by an independent, constrained LLM call (`gemini-1.5-flash`). This isolates adversarial prompt injections from the main reasoning loop.
+2. **Safety Evaluator (`safety.py`)**: A fast heuristic pre-filter followed by an independent, constrained LLM call (`gemini-2.5-flash`). This isolates adversarial prompt injections from the main reasoning loop.
 3. **Hybrid Retrieval (`retrieval.py`)**: Computes sparse (BM25 via TF-IDF approximation) and dense (`all-MiniLM-L6-v2`) scores, fusing them with a weighted alpha. 
 4. **Agent Core (`agent_core.py`)**: The state machine. Formats context, executes generation, and handles fallback states. Uses token-aware rate limiting for the Gemini API.
 5. **Validator (`validation.py`)**: A deterministic rule engine that ensures destructive tools (like `issue_refund`) are overridden to `verify_identity` if the context lacks verification proof. It also calibrates the final confidence score based on retrieval quality and risk penalties.

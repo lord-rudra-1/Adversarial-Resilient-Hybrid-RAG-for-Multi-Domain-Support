@@ -13,8 +13,8 @@ async def call_gemini_async(prompt: str, system_instruction: str = None, respons
         logger.error("GEMINI_API_KEY not set")
         return None
 
-    # Using gemini-1.5-flash for speed and cost efficiency
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
+    # Using gemini-2.5-flash for speed and cost efficiency
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={GEMINI_API_KEY}"
     
     headers = {
         "Content-Type": "application/json"

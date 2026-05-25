@@ -2,7 +2,7 @@ import json
 import logging
 from typing import Dict, Any
 
-from code.llm_client import call_gemini_async
+from llm_client import call_gemini_async
 
 logger = logging.getLogger(__name__)
 

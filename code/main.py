@@ -6,8 +6,8 @@ import argparse
 import time
 import logging
 
-from code.retrieval import HybridRetriever
-from code.agent_core import PipelineCoordinator
+from retrieval import HybridRetriever
+from agent_core import PipelineCoordinator
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -40,6 +40,15 @@ async def process_all(input_file: str, output_file: str, repo_root: str):
     tasks = [bounded_process(ticket) for ticket in tickets]
     results = await asyncio.gather(*tasks)
     
+    # HARD FAIL DETECTION: Prevent silent success if API calls are failing globally
+    failed_generations = sum(1 for r in results if r.justification == "LLM generation failed or returned invalid format.")
+    if tickets:
+        failure_rate = failed_generations / len(tickets)
+        if failure_rate > 0.2:
+            logger.error(f"CRITICAL SYSTEM FAILURE: {failed_generations}/{len(tickets)} API calls failed entirely. "
+                         f"Hard crashing to prevent silent hidden-test failure. Check API keys and network limits.")
+            sys.exit(1)
+            
     # 4. Write output
     fieldnames = [
         "status", "product_area", "response", "justification", "request_type",
