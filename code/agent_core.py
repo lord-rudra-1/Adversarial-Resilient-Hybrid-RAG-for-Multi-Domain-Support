@@ -17,10 +17,11 @@ class PipelineCoordinator:
         self.repo_root = repo_root
 
     async def process_ticket(self, row: Dict[str, str]) -> AgentOutput:
+        # CSV headers are capitalized: 'Issue', 'Subject', 'Company'
         state = TicketState(
-            original_issue=row.get('issue', '[]'),
-            original_subject=row.get('subject', ''),
-            original_company=row.get('company', 'None')
+            original_issue=row.get('Issue', row.get('issue', '[]')),
+            original_subject=row.get('Subject', row.get('subject', '')),
+            original_company=row.get('Company', row.get('company', 'None'))
         )
         
         # 1. Preprocessing
@@ -98,7 +99,8 @@ class PipelineCoordinator:
         return output
         
     async def _generate_response(self, state: TicketState) -> AgentOutput:
-        context_str = "\n\n".join([f"Document: {chunk['path']}\n{chunk['content']}" for chunk in state.retrieved_chunks])
+        # Truncate each context chunk to keep prompt manageable for local LLM
+        context_str = "\n\n".join([f"Document: {chunk['path']}\n{chunk['content'][:1500]}" for chunk in state.retrieved_chunks])
         
         system_instruction = (
             "You are an expert customer support triage agent. Analyze the support ticket and context documents.\n"
@@ -108,7 +110,11 @@ class PipelineCoordinator:
             "2. If the answer is not in the context, output status='escalated' and response='' with justification.\n"
             "3. source_documents MUST be pipe-separated file paths EXACTLY as provided in the context.\n"
             "4. Never include PII in your response.\n"
-            "5. The company or subject might be misleading; trust the conversation history."
+            "5. The company or subject might be misleading; trust the conversation history.\n"
+            "6. actions_taken must be a list of objects with 'action' (string) and 'parameters' (object) fields.\n"
+            "7. confidence_score must be a float between 0.0 and 1.0.\n"
+            "8. status must be exactly 'replied' or 'escalated'.\n"
+            "9. risk_level must be exactly 'low', 'medium', 'high', or 'critical'."
         )
         
         prompt = f"""
@@ -122,21 +128,93 @@ class PipelineCoordinator:
         {context_str}
         """
         
-        schema = AgentOutput.model_json_schema()
+        # Use a simple hand-written schema instead of Pydantic's complex $defs output
+        schema = {
+            "type": "object",
+            "properties": {
+                "status": {"type": "string", "enum": ["replied", "escalated"]},
+                "product_area": {"type": "string"},
+                "response": {"type": "string", "description": "User-facing answer grounded in the context documents. Empty if escalated."},
+                "justification": {"type": "string"},
+                "request_type": {"type": "string", "enum": ["product_issue", "feature_request", "bug", "invalid"]},
+                "confidence_score": {"type": "number"},
+                "source_documents": {"type": "string", "description": "Pipe-separated file paths from context documents"},
+                "risk_level": {"type": "string", "enum": ["low", "medium", "high", "critical"]},
+                "pii_detected": {"type": "boolean"},
+                "language": {"type": "string", "description": "ISO 639-1 code"},
+                "actions_taken": {"type": "array", "items": {"type": "object", "properties": {"action": {"type": "string"}, "parameters": {"type": "object"}}}}
+            },
+            "required": ["status", "product_area", "response", "justification", "request_type", "confidence_score", "source_documents", "risk_level", "pii_detected", "language", "actions_taken"]
+        }
         
         response_text = await call_gemini_async(
             prompt=prompt,
             system_instruction=system_instruction,
             response_schema=schema,
             temperature=0.0,
-            max_tokens=1024
+            max_tokens=2048
         )
         
-        if response_text:
+        logger.info(f"LLM raw response (first 500 chars): {(response_text or 'None')[:500]}")
+        
+        if not response_text:
+            return None
+            
+        try:
+            data = json.loads(response_text)
+        except json.JSONDecodeError as e:
+            logger.error(f"Failed to decode LLM JSON: {e}\nRaw: {response_text[:500]}")
+            return None
+        
+        # Normalize actions_taken: LLM may return dicts, strings, or malformed data
+        raw_actions = data.get("actions_taken", [])
+        if isinstance(raw_actions, str):
             try:
-                data = json.loads(response_text)
-                return AgentOutput(**data)
-            except Exception as e:
-                logger.error(f"Failed to parse generation output: {e}\nResponse: {response_text}")
-                
-        return None
+                raw_actions = json.loads(raw_actions)
+            except json.JSONDecodeError:
+                raw_actions = []
+        
+        normalized_actions = []
+        if isinstance(raw_actions, list):
+            for a in raw_actions:
+                if isinstance(a, dict) and "action" in a:
+                    normalized_actions.append({
+                        "action": str(a["action"]),
+                        "parameters": a.get("parameters", {})
+                    })
+        data["actions_taken"] = normalized_actions
+        
+        # Normalize confidence_score
+        try:
+            data["confidence_score"] = float(data.get("confidence_score", 0.5))
+        except (ValueError, TypeError):
+            data["confidence_score"] = 0.5
+        
+        # Normalize pii_detected
+        data["pii_detected"] = bool(data.get("pii_detected", state.pii_present))
+        
+        # Ensure status is valid
+        if data.get("status") not in ("replied", "escalated"):
+            data["status"] = "escalated"
+        
+        # Default all string fields that the LLM might return as null
+        data.setdefault("language", "en")
+        data["language"] = data["language"] or "en"
+        data.setdefault("product_area", "general")
+        data["product_area"] = data["product_area"] or "general"
+        data.setdefault("response", "")
+        data["response"] = data["response"] or ""
+        data.setdefault("justification", "")
+        data["justification"] = data["justification"] or ""
+        data.setdefault("request_type", "product_issue")
+        data["request_type"] = data["request_type"] or "product_issue"
+        data.setdefault("source_documents", "")
+        data["source_documents"] = data["source_documents"] or ""
+        data.setdefault("risk_level", "medium")
+        data["risk_level"] = data["risk_level"] or "medium"
+        
+        try:
+            return AgentOutput(**data)
+        except Exception as e:
+            logger.error(f"Failed to construct AgentOutput: {e}\nData: {json.dumps(data)[:500]}")
+            return None

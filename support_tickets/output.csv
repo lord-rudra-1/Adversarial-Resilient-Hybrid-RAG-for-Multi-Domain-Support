@@ -1,11 +1,11 @@
 status,product_area,response,justification,request_type,confidence_score,source_documents,risk_level,pii_detected,language,actions_taken
-escalated,security,This request has been flagged by our security systems and escalated to a human agent.,Prompt injection or adversarial behavior detected.,invalid,1.0,,critical,False,en,"[{""action"": ""escalate_to_human"", ""parameters"": {""priority"": ""urgent"", ""department"": ""security"", ""summary"": ""Prompt injection detected""}}]"
-escalated,security,This request has been flagged by our security systems and escalated to a human agent.,Prompt injection or adversarial behavior detected.,invalid,1.0,,critical,False,en,"[{""action"": ""escalate_to_human"", ""parameters"": {""priority"": ""urgent"", ""department"": ""security"", ""summary"": ""Prompt injection detected""}}]"
-escalated,security,This request has been flagged by our security systems and escalated to a human agent.,Prompt injection or adversarial behavior detected.,invalid,1.0,,critical,False,en,"[{""action"": ""escalate_to_human"", ""parameters"": {""priority"": ""urgent"", ""department"": ""security"", ""summary"": ""Prompt injection detected""}}]"
-escalated,security,This request has been flagged by our security systems and escalated to a human agent.,Prompt injection or adversarial behavior detected.,invalid,1.0,,critical,False,en,"[{""action"": ""escalate_to_human"", ""parameters"": {""priority"": ""urgent"", ""department"": ""security"", ""summary"": ""Prompt injection detected""}}]"
-escalated,security,This request has been flagged by our security systems and escalated to a human agent.,Prompt injection or adversarial behavior detected.,invalid,1.0,,critical,False,en,"[{""action"": ""escalate_to_human"", ""parameters"": {""priority"": ""urgent"", ""department"": ""security"", ""summary"": ""Prompt injection detected""}}]"
-escalated,security,This request has been flagged by our security systems and escalated to a human agent.,Prompt injection or adversarial behavior detected.,invalid,1.0,,critical,False,en,"[{""action"": ""escalate_to_human"", ""parameters"": {""priority"": ""urgent"", ""department"": ""security"", ""summary"": ""Prompt injection detected""}}]"
-escalated,security,This request has been flagged by our security systems and escalated to a human agent.,Prompt injection or adversarial behavior detected.,invalid,1.0,,critical,False,en,"[{""action"": ""escalate_to_human"", ""parameters"": {""priority"": ""urgent"", ""department"": ""security"", ""summary"": ""Prompt injection detected""}}]"
-escalated,security,This request has been flagged by our security systems and escalated to a human agent.,Prompt injection or adversarial behavior detected.,invalid,1.0,,critical,False,en,"[{""action"": ""escalate_to_human"", ""parameters"": {""priority"": ""urgent"", ""department"": ""security"", ""summary"": ""Prompt injection detected""}}]"
-escalated,security,This request has been flagged by our security systems and escalated to a human agent.,Prompt injection or adversarial behavior detected.,invalid,1.0,,critical,False,en,"[{""action"": ""escalate_to_human"", ""parameters"": {""priority"": ""urgent"", ""department"": ""security"", ""summary"": ""Prompt injection detected""}}]"
-escalated,security,This request has been flagged by our security systems and escalated to a human agent.,Prompt injection or adversarial behavior detected.,invalid,1.0,,critical,False,en,"[{""action"": ""escalate_to_human"", ""parameters"": {""priority"": ""urgent"", ""department"": ""security"", ""summary"": ""Prompt injection detected""}}]"
+escalated,general,,,product_issue,0.5,,medium,False,en,[]
+escalated,general,,,product_issue,0.5,,medium,False,en,[]
+escalated,general,,,product_issue,0.5,,medium,False,en,[]
+escalated,general,,,product_issue,0.5,,medium,False,en,[]
+escalated,general,,,product_issue,0.5,,medium,False,en,[]
+escalated,general,,,product_issue,0.5,,medium,False,en,[]
+escalated,general,,,product_issue,0.5,,medium,False,en,[]
+escalated,general,,,product_issue,0.5,,medium,False,en,[]
+escalated,general,,,product_issue,0.5,,medium,False,en,[]
+escalated,general,,,product_issue,0.5,,medium,False,en,[]
