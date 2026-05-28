@@ -23,7 +23,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from retrieval import HybridRetriever
 from agent_core import PipelineCoordinator
-from llm_client import close_session, OLLAMA_MODEL
+from llm_client import close_session, GROQ_MODEL
 
 # ─── ANSI Colors ─────────────────────────────────────────────────────────────
 class C:
@@ -196,11 +196,10 @@ class InteractiveAgent:
         self.turn_count = 0
 
     async def process_query(self, query: str) -> None:
-        """Process a single user query through the full pipeline."""
+        """Process a single user query through the full pipeline with streaming."""
         self.turn_count += 1
         self.conversation_history.append({"role": "user", "content": query})
 
-        # Build a ticket-like row for the pipeline
         row = {
             "Issue": json.dumps(self.conversation_history),
             "Subject": query[:80],
@@ -208,21 +207,33 @@ class InteractiveAgent:
         }
 
         print()
-        print(f"  {C.B_CYAN}{C.BOLD}⏳ Processing...{C.RESET}")
-        print_thinking("sanitize")
+        print(f"  {C.B_CYAN}{C.BOLD}⏳ Processing (Groq API + Heuristics)...{C.RESET}")
+        
         start = time.time()
 
-        result = await self.coordinator.process_ticket(row)
-
+        generator = await self.coordinator.process_ticket(row, stream=True)
+        
+        # Stream the raw output to terminal as it arrives
+        print(f"  {C.CYAN}STREAM:{C.RESET} {C.DIM}", end="", flush=True)
+        final_result = None
+        
+        async for item in generator:
+            if isinstance(item, str):
+                # Print tokens live
+                print(item, end="", flush=True)
+            else:
+                final_result = item
+                
+        print(f"{C.RESET}") # Reset formatting after stream
         elapsed = time.time() - start
 
-        # Store assistant response in history for multi-turn
-        if result.response:
-            self.conversation_history.append({"role": "assistant", "content": result.response})
+        if final_result and final_result.response:
+            self.conversation_history.append({"role": "assistant", "content": final_result.response})
 
-        # Display result
-        print_response_card(result)
-        print(f"  {C.GRAY}⏱  Processed in {elapsed:.1f}s{C.RESET}")
+        if final_result:
+            print_response_card(final_result)
+            
+        print(f"  {C.GRAY}⏱  Processed in {elapsed:.3f}s{C.RESET}")
         print()
 
     def set_company(self, company: str):
@@ -261,7 +272,7 @@ async def main():
     # Print logo
     os.system("clear" if os.name != "nt" else "cls")
     print(LOGO)
-    print(f"  {C.DIM}Model: {C.RESET}{C.BOLD}{OLLAMA_MODEL}{C.RESET}")
+    print(f"  {C.DIM}Model: {C.RESET}{C.BOLD}{GROQ_MODEL}{C.RESET}")
     print(f"  {C.DIM}Type {C.B_GREEN}/help{C.RESET}{C.DIM} for commands, or just ask a question.{C.RESET}")
     print()
     print_divider("═", 65, C.GRAY)
@@ -308,7 +319,7 @@ async def main():
                 continue
 
             elif lower == "/model":
-                print(f"\n  {C.BOLD}Model:{C.RESET} {OLLAMA_MODEL}")
+                print(f"\n  {C.BOLD}Model:{C.RESET} {GROQ_MODEL}")
                 print(f"  {C.BOLD}Company:{C.RESET} {agent.company}")
                 print(f"  {C.BOLD}Turns:{C.RESET} {agent.turn_count}")
                 print()
@@ -345,4 +356,7 @@ async def main():
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        pass
