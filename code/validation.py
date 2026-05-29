@@ -1,47 +1,130 @@
+import json
 import os
+from pathlib import Path
 from typing import List, Dict, Any
-from models import ActionCall, AgentOutput
+from models import ActionCall
+
+DESTRUCTIVE_ACTIONS = {"issue_refund", "modify_subscription", "lock_account"}
+TRUSTED_VERIFICATION_PHRASES = (
+    "identity verified",
+    "verification complete",
+    "verified identity",
+    "otp verified",
+    "security questions verified",
+    "authentication complete",
+)
+
+def _load_tool_specs() -> Dict[str, Dict[str, Any]]:
+    spec_path = Path(__file__).resolve().parent.parent / "data" / "api_specs" / "internal_tools.json"
+    try:
+        raw_specs = json.loads(spec_path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    return {spec["name"]: spec["parameters"] for spec in raw_specs if "name" in spec and "parameters" in spec}
+
+TOOL_SPECS = _load_tool_specs()
+
+def _coerce_action(action: Any) -> ActionCall | None:
+    if isinstance(action, ActionCall):
+        return action
+    if isinstance(action, dict) and "action" in action:
+        params = action.get("parameters", {})
+        if not isinstance(params, dict):
+            params = {}
+        return ActionCall(action=str(action["action"]), parameters=params)
+    return None
+
+def _trusted_identity_verified(conversation_history: List[Dict[str, str]]) -> bool:
+    for message in conversation_history:
+        role = str(message.get("role", "")).lower()
+        if role == "user":
+            continue
+        content = str(message.get("content", "")).lower()
+        if any(phrase in content for phrase in TRUSTED_VERIFICATION_PHRASES):
+            return True
+    return False
+
+def _schema_validated_action(action: ActionCall) -> ActionCall | None:
+    schema = TOOL_SPECS.get(action.action)
+    if not schema:
+        return None
+
+    properties = schema.get("properties", {})
+    required = set(schema.get("required", []))
+    params = action.parameters if isinstance(action.parameters, dict) else {}
+
+    if not required.issubset(params.keys()):
+        return None
+
+    cleaned_params = {key: params[key] for key in properties if key in params}
+    return ActionCall(action=action.action, parameters=cleaned_params)
+
+def _verification_target(action: ActionCall) -> str | None:
+    params = action.parameters if isinstance(action.parameters, dict) else {}
+    for key in ("user_email", "email", "phone", "phone_number", "target"):
+        value = params.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    identifier = params.get("user_identifier")
+    if isinstance(identifier, str) and ("@" in identifier or any(ch.isdigit() for ch in identifier)):
+        return identifier.strip()
+    return None
 
 def validate_tool_calls(actions: List[ActionCall], conversation_history: List[Dict[str, str]]) -> List[ActionCall]:
-    """Ensures destructive actions are preceded by identity verification."""
+    """Strictly validates tool calls and blocks unsafe destructive actions."""
     if not actions:
         return []
         
     validated = []
-    
-    # Check if identity was verified in conversation history
-    history_text = " ".join([m["content"] for m in conversation_history]).lower()
-    is_verified = "verified" in history_text or "otp" in history_text or "security questions" in history_text
+    is_verified = _trusted_identity_verified(conversation_history)
     
     for action in actions:
-        if action.action in ["issue_refund", "modify_subscription", "lock_account"]:
+        raw_action = _coerce_action(action)
+        if raw_action is None:
+            continue
+
+        action = _schema_validated_action(raw_action)
+        if action is None:
+            continue
+
+        if action.action in DESTRUCTIVE_ACTIONS:
             if not is_verified:
-                # Override: force verify_identity instead of the destructive action
-                validated.append(ActionCall(
-                    action="verify_identity", 
-                    parameters={"method": "email_otp", "target": "user@example.com"} # Placeholder target
-                ))
+                target = _verification_target(raw_action)
+                if target:
+                    validated.append(ActionCall(
+                        action="verify_identity",
+                        parameters={"method": "email_otp", "target": target}
+                    ))
                 continue
         validated.append(action)
         
     return validated
 
 def validate_citations(source_documents_str: str, repo_root: str) -> str:
-    """Ensures cited paths actually exist in the file system."""
+    """Ensures cited paths are existing repo-relative corpus documents."""
     if not source_documents_str:
         return ""
         
     paths = source_documents_str.split('|')
     valid_paths = []
+    repo_path = Path(repo_root).resolve()
+    data_path = (repo_path / "data").resolve()
     
     for path in paths:
         path = path.strip()
         if not path:
             continue
+        if "://" in path or os.path.isabs(path):
+            continue
             
-        full_path = os.path.join(repo_root, path)
-        if os.path.exists(full_path) and os.path.isfile(full_path):
-            valid_paths.append(path)
+        full_path = (repo_path / path).resolve()
+        try:
+            full_path.relative_to(data_path)
+        except ValueError:
+            continue
+
+        if full_path.exists() and full_path.is_file():
+            valid_paths.append(str(full_path.relative_to(repo_path)))
             
     return "|".join(valid_paths)
 

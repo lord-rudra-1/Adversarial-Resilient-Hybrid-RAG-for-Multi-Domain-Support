@@ -2,7 +2,7 @@
 
 ## High-Level Architecture & Data Flow
 
-This agent is built as a highly concurrent, adversarial-resistant, multi-stage processing pipeline using Python's `asyncio` framework. 
+This agent is built as an adversarial-resistant, multi-stage processing pipeline using Python's `asyncio` framework. 
 The core objective is to process ~150 support tickets within the 3-minute constraint while maintaining extreme robustness against prompt injections and strict tool-call safety.
 
 ### Data Flow Diagram
@@ -10,7 +10,7 @@ The core objective is to process ~150 support tickets within the 3-minute constr
 ```mermaid
 graph TD
     A[Raw CSV Row] --> B[Sanitization & PII Filter]
-    B --> C{Safety Evaluator LLM}
+    B --> C{Heuristic Safety Filter}
     C -- Malicious --> D[Immediate Escalation & Reject]
     C -- Safe --> E[Hybrid Retrieval BM25 + Embeddings]
     E --> F[Generation LLM]
@@ -25,17 +25,17 @@ graph TD
 
 ### Components
 1. **Sanitization (`utils.py`)**: Strips control characters, normalizes whitespace, and uses regex to redact PII (SSNs, Credit Cards) *before* it enters LLM context windows.
-2. **Safety Evaluator (`safety.py`)**: A fast heuristic pre-filter followed by an independent, constrained LLM call (`gemini-2.5-flash`). This isolates adversarial prompt injections from the main reasoning loop.
+2. **Safety Evaluator (`safety.py`)**: A deterministic heuristic filter catches jailbreaks, prompt extraction attempts, social-engineering/audit framing, multilingual override attempts, and obfuscation before retrieval or generation.
 3. **Hybrid Retrieval (`retrieval.py`)**: Computes sparse (BM25 via TF-IDF approximation) and dense (`all-MiniLM-L6-v2`) scores, fusing them with a weighted alpha. 
-4. **Agent Core (`agent_core.py`)**: The state machine. Formats context, executes generation, and handles fallback states. Uses token-aware rate limiting for the Gemini API.
-5. **Validator (`validation.py`)**: A deterministic rule engine that ensures destructive tools (like `issue_refund`) are overridden to `verify_identity` if the context lacks verification proof. It also calibrates the final confidence score based on retrieval quality and risk penalties.
+4. **Agent Core (`agent_core.py`)**: The state machine. Formats context, executes live LLM generation through the configured Groq-compatible client, and handles fallback states.
+5. **Validator (`validation.py`)**: A deterministic rule engine that validates citations against the local corpus, enforces the schemas in `data/api_specs/internal_tools.json`, blocks unsafe destructive tools when identity is not verified by trusted context, and calibrates confidence using retrieval quality and risk penalties.
 
 ## Retrieval Strategy
 **Hybrid BM25 + Dense Embeddings**. 
 Why? BM25 excels at exact keyword matches (e.g., specific error codes, unique IDs), while dense embeddings capture semantic intent (e.g., "how do I pay" -> "billing support"). The `all-MiniLM-L6-v2` model was chosen because it is exceptionally lightweight, running on CPU in milliseconds without inflating Docker image size or requiring GPU access, ensuring we easily meet the 3-minute latency budget.
 
 ## Safety & Adversarial Handling
-We use a **Sandboxed Dual-LLM Architecture**. Naive RAG passes the user's prompt directly into a large "reasoning" prompt. This is highly vulnerable to "ignore previous instructions" attacks. By intercepting the raw text with a fast Evaluator LLM that has no access to tools or context, we neutralize the attack surface.
+We use a **deterministic safety gate before RAG and generation**. Naive RAG passes the user's prompt directly into a large reasoning prompt, which is vulnerable to "ignore previous instructions" attacks. The local gate blocks prompt extraction, role override, social-engineering, multilingual override, long-token, and high-entropy probes before the ticket can reach the retrieval/generation prompt.
 
 ## Escalation Logic
 The agent escalates under the following conditions:
@@ -46,7 +46,8 @@ The agent escalates under the following conditions:
 
 ## Known Limitations and Failure Modes
 - **Regex PII Constraints**: Regex is brittle. International phone numbers or oddly formatted PII might slip through. A dedicated NER model (like Presidio) would be superior but slower.
-- **Heuristic Tool Validation**: The check for `verify_identity` relies on keyword matching in the conversation history ("verified", "otp"). Sophisticated social engineering might trick the agent into hallucinating that identity was verified.
+- **Heuristic Safety Coverage**: The prompt-injection detector is intentionally conservative and pattern-based. Novel attacks can still slip through, especially if phrased as normal support language.
+- **PII Regex Constraints**: Address and phone detection are broader than before but still imperfect across international formats.
 
 ## Self-Assessment
 
@@ -62,7 +63,7 @@ The agent escalates under the following conditions:
 **2. Hardest Tickets in Visible Set**
 - *Ticket (Misleading Subject)*: The subject contradicts the body. Approach: Our pipeline heavily weights the conversation history over the metadata during retrieval.
 - *Ticket (Prompt Injection)*: Embedded request to output system rules. Approach: Caught by the pre-generation `llm_safety_check`.
-- *Ticket (Missing Prerequisite)*: Requesting refund without OTP. Approach: Caught by `validate_tool_calls` interceptor which rewrites the action to `verify_identity`.
+- *Ticket (Missing Prerequisite)*: Requesting refund without trusted identity verification. Approach: Caught by `validate_tool_calls`; unsafe destructive actions are removed or replaced with `verify_identity` only when a safe verification target is available.
 
 **3. Hidden Test Set Predictions**
 I anticipate:

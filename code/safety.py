@@ -1,7 +1,6 @@
 import logging
 import re
 import math
-from collections import Counter
 
 logger = logging.getLogger(__name__)
 
@@ -18,26 +17,63 @@ def heuristic_injection_check(text: str) -> bool:
         return False
         
     text_lower = text.lower()
+    normalized = re.sub(r"\s+", " ", text_lower)
     
     # 1. Known jailbreak vectors
     suspicious_patterns = [
         r"ignore previous instructions",
+        r"ignore (all )?(the )?(above|prior|earlier) instructions",
         r"forget all instructions",
         r"system prompt",
+        r"system instructions",
+        r"safety guidelines",
+        r"developer message",
+        r"internal instructions",
+        r"hidden instructions",
         r"you are now",
         r"new rules",
         r"disregard",
+        r"override safety",
+        r"override .*protocols",
         r"bypass",
         r"print previous",
+        r"reveal .*prompt",
+        r"provide .*system",
+        r"full text .*instructions",
+        r"names? of all tools",
+        r"tools/functions",
+        r"available tools",
+        r"confidence scoring algorithm",
+        r"auth_code",
+        r"routine audit",
+        r"senior qa engineer",
+        r"internal auditor",
+        r"trust\s*&\s*safety",
+        r"employee .*emergency access",
+        r"customer account data",
+        r"internal credentials",
         r"translate this into",
         r"do anything now",
-        r"DAN",
+        r"\bdan\b",
         r"hypothetical situation",
-        r"pretend that you"
+        r"pretend that you",
+        # Common multilingual injection probes. These are intentionally narrow
+        # so normal support requests in these languages still pass through.
+        r"ignora .*instrucciones",
+        r"revela .*prompt",
+        r"muestra .*prompt",
+        r"olvida .*instrucciones",
+        r"ignorez .*instructions",
+        r"rév[eè]le .*prompt",
+        r"忽略.*指令",
+        r"忽略.*说明",
+        r"显示.*系统",
+        r"प्रॉम्प्ट.*बत",
+        r"निर्देश.*अनदेखा"
     ]
     
     for pattern in suspicious_patterns:
-        if re.search(pattern, text_lower):
+        if re.search(pattern, normalized):
             logger.warning(f"Safety Check: Pattern match '{pattern}'")
             return True
             

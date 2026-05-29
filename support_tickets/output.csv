@@ -1,11 +1,1 @@
-status,product_area,response,justification,request_type,confidence_score,source_documents,risk_level,pii_detected,language,actions_taken
-escalated,general,,,product_issue,0.5,,medium,False,en,[]
-escalated,general,,,product_issue,0.5,,medium,False,en,[]
-escalated,general,,,product_issue,0.5,,medium,False,en,[]
-escalated,general,,,product_issue,0.5,,medium,False,en,[]
-escalated,general,,,product_issue,0.5,,medium,False,en,[]
-escalated,general,,,product_issue,0.5,,medium,False,en,[]
-escalated,general,,,product_issue,0.5,,medium,False,en,[]
-escalated,general,,,product_issue,0.5,,medium,False,en,[]
-escalated,general,,,product_issue,0.5,,medium,False,en,[]
-escalated,general,,,product_issue,0.5,,medium,False,en,[]
+issue,subject,company,response,product_area,status,request_type,justification,confidence_score,source_documents,risk_level,pii_detected,language,actions_taken

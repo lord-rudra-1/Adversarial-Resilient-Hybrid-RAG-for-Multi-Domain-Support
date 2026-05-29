@@ -39,6 +39,14 @@ async def process_all(input_file: str, output_file: str, repo_root: str):
             logger.info(f"Processing ticket {i+1}/{len(tickets)}...")
             result = await coordinator.process_ticket(ticket)
             results.append(result)
+            failed_so_far = sum(1 for r in results if r.justification == "LLM generation failed or returned invalid format.")
+            processed = len(results)
+            if processed >= 5 and failed_so_far / processed > 0.2:
+                logger.error(
+                    f"CRITICAL SYSTEM FAILURE: {failed_so_far}/{processed} processed tickets failed entirely. "
+                    f"Stopping early to avoid silently producing a low-quality output. Check API keys and rate limits."
+                )
+                sys.exit(1)
     finally:
         await close_session()
     
@@ -51,11 +59,13 @@ async def process_all(input_file: str, output_file: str, repo_root: str):
                          f"Hard crashing to prevent silent hidden-test failure. Check API keys and network limits.")
             sys.exit(1)
             
-    # 4. Write output
+    # 4. Write output. Keep the original input fields so the submission
+    # matches the evaluator/validator contract exactly.
     fieldnames = [
-        "status", "product_area", "response", "justification", "request_type",
-        "confidence_score", "source_documents", "risk_level", "pii_detected", 
-        "language", "actions_taken"
+        "issue", "subject", "company", "response", "product_area",
+        "status", "request_type", "justification", "confidence_score",
+        "source_documents", "risk_level", "pii_detected", "language",
+        "actions_taken"
     ]
     
     os.makedirs(os.path.dirname(output_file) or '.', exist_ok=True)
@@ -63,12 +73,20 @@ async def process_all(input_file: str, output_file: str, repo_root: str):
         writer = csv.DictWriter(f, fieldnames=fieldnames)
         writer.writeheader()
         
-        for result in results:
-            row = result.model_dump()
+        for ticket, result in zip(tickets, results):
+            row = {
+                "issue": ticket.get("Issue", ticket.get("issue", "")),
+                "subject": ticket.get("Subject", ticket.get("subject", "")),
+                "company": ticket.get("Company", ticket.get("company", "")),
+            }
+            row.update(result.model_dump())
             # Serialize actions_taken list of dicts to JSON string for CSV
             row["actions_taken"] = json.dumps(
-                [a if isinstance(a, dict) else a for a in row["actions_taken"]]
+                [a if isinstance(a, dict) else a.model_dump() for a in row["actions_taken"]],
+                ensure_ascii=False,
+                sort_keys=True
             )
+            row["pii_detected"] = str(bool(row["pii_detected"])).lower()
             writer.writerow(row)
             
     logger.info(f"Finished processing. Wrote {len(results)} rows to {output_file}")

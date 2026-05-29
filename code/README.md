@@ -2,7 +2,7 @@
 
 ## Prerequisites
 - Python 3.9+
-- Gemini API Key
+- Groq API key for live LLM runs
 
 ## Setup
 1. Create a virtual environment:
@@ -16,12 +16,20 @@
    ```
 3. Export your API key:
    ```bash
-   export GEMINI_API_KEY="your_api_key_here"
+   export GROQ_API_KEY="your_api_key_here"
+   export LLM_PROVIDER="groq"
+   export LLM_MODEL="llama-3.1-8b-instant"
    ```
 
 ## Execution
 Run the agent from the repository root:
 ```bash
-python3 code/main.py --input support_tickets/support_tickets.csv --output support_tickets/output.csv
+venv/bin/python code/main.py --input support_tickets/support_tickets.csv --output support_tickets/output.csv
 ```
-This will process all tickets concurrently and output to the specified CSV.
+This processes tickets sequentially to avoid live API rate-limit failures and writes the evaluator-ready CSV.
+
+## Validation
+Run the structural validator before submission:
+```bash
+venv/bin/python code/validate_output.py
+```

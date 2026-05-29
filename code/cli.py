@@ -10,6 +10,9 @@ Usage:
     python3 code/cli.py --company DevPlatform
 """
 
+from llm_client import close_session, set_model_config
+from agent_core import PipelineCoordinator
+from retrieval import HybridRetriever
 import sys
 import os
 import json
@@ -21,51 +24,50 @@ import logging
 # Ensure imports work from code/ directory
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from retrieval import HybridRetriever
-from agent_core import PipelineCoordinator
-from llm_client import close_session, GROQ_MODEL
 
 # ─── ANSI Colors ─────────────────────────────────────────────────────────────
-class C:
-    RESET    = "\033[0m"
-    BOLD     = "\033[1m"
-    DIM      = "\033[2m"
-    ITALIC   = "\033[3m"
-    UNDER    = "\033[4m"
 
-    BLACK    = "\033[30m"
-    RED      = "\033[31m"
-    GREEN    = "\033[32m"
-    YELLOW   = "\033[33m"
-    BLUE     = "\033[34m"
-    MAGENTA  = "\033[35m"
-    CYAN     = "\033[36m"
-    WHITE    = "\033[37m"
+class C:
+    RESET = "\033[0m"
+    BOLD = "\033[1m"
+    DIM = "\033[2m"
+    ITALIC = "\033[3m"
+    UNDER = "\033[4m"
+
+    BLACK = "\033[30m"
+    RED = "\033[31m"
+    GREEN = "\033[32m"
+    YELLOW = "\033[33m"
+    BLUE = "\033[34m"
+    MAGENTA = "\033[35m"
+    CYAN = "\033[36m"
+    WHITE = "\033[37m"
 
     BG_BLACK = "\033[40m"
-    BG_BLUE  = "\033[44m"
-    BG_CYAN  = "\033[46m"
-    BG_MAG   = "\033[45m"
+    BG_BLUE = "\033[44m"
+    BG_CYAN = "\033[46m"
+    BG_MAG = "\033[45m"
 
     # 256-color / bright
-    GRAY     = "\033[90m"
-    B_GREEN  = "\033[92m"
-    B_CYAN   = "\033[96m"
+    GRAY = "\033[90m"
+    B_GREEN = "\033[92m"
+    B_CYAN = "\033[96m"
     B_YELLOW = "\033[93m"
-    B_MAGENTA= "\033[95m"
-    B_RED    = "\033[91m"
-    B_BLUE   = "\033[94m"
+    B_MAGENTA = "\033[95m"
+    B_RED = "\033[91m"
+    B_BLUE = "\033[94m"
 
 # ─── Pretty Printing ─────────────────────────────────────────────────────────
+
 
 LOGO = f"""{C.B_CYAN}{C.BOLD}
   ╔═══════════════════════════════════════════════════════════════╗
   ║                                                               ║
-  ║   ▄▀▀▀▀▄  █    █ █▀▀▀█ █▀▀▀█ █▀▀▀█ █▀▀█ ▀▀█▀▀              ║
-  ║   █▄▄▄▄▀  █    █ █▄▄▄█ █▄▄▄█ █   █ █▄▄▀   █                ║
-  ║   ▀▄▄▄▄▀  ▀▄▄▄▀ █     █     █▄▄▄█ █  ▀▄  █                 ║
+  ║   ▄▀▀▀▀▄  █    █ █▀▀▀█ █▀▀▀█ █▀▀▀█ █▀▀█ ▀▀█▀▀                 ║
+  ║   █▄▄▄▄▄  █    █ █▄▄▄█ █▄▄▄█ █   █ █▄▄▀   █                   ║
+  ║   ▄▄▄▄▄▀  ▀▄▄▄ ▀ █     █     █▄▄▄█ █  ▀▄  █                   ║
   ║                                                               ║
-  ║           🤖  Interactive Support Agent  v1.0                 ║
+  ║   Interactive Support Agent  v1.0                             ║
   ║                                                               ║
   ╚═══════════════════════════════════════════════════════════════╝{C.RESET}
 """
@@ -85,11 +87,14 @@ HELP_TEXT = f"""
   • Set company context for better routing{C.RESET}
 """
 
+
 def print_divider(char="─", width=65, color=C.GRAY):
     print(f"{color}{char * width}{C.RESET}")
 
+
 def print_status(label, value, color=C.B_GREEN):
     print(f"  {C.GRAY}{label:<18}{C.RESET} {color}{value}{C.RESET}")
+
 
 def print_response_card(result):
     """Render the agent response as a rich terminal card."""
@@ -112,7 +117,8 @@ def print_response_card(result):
     print_status("Request Type", result.request_type, C.WHITE)
 
     # Risk level with color coding
-    risk_colors = {"low": C.B_GREEN, "medium": C.B_YELLOW, "high": C.B_RED, "critical": f"{C.BOLD}{C.B_RED}"}
+    risk_colors = {"low": C.B_GREEN, "medium": C.B_YELLOW,
+                   "high": C.B_RED, "critical": f"{C.BOLD}{C.B_RED}"}
     risk_c = risk_colors.get(result.risk_level, C.WHITE)
     print_status("Risk Level", f"{risk_c}{result.risk_level.upper()}{C.RESET}")
 
@@ -121,11 +127,13 @@ def print_response_card(result):
     bar_len = 20
     filled = int(conf * bar_len)
     bar = f"{'█' * filled}{'░' * (bar_len - filled)}"
-    conf_color = C.B_GREEN if conf >= 0.7 else (C.B_YELLOW if conf >= 0.4 else C.B_RED)
+    conf_color = C.B_GREEN if conf >= 0.7 else (
+        C.B_YELLOW if conf >= 0.4 else C.B_RED)
     print_status("Confidence", f"{conf_color}{bar} {conf:.0%}{C.RESET}")
 
     print_status("Language", result.language.upper(), C.WHITE)
-    print_status("PII Detected", "⚠ YES" if result.pii_detected else "✓ No", C.B_RED if result.pii_detected else C.B_GREEN)
+    print_status("PII Detected", "⚠ YES" if result.pii_detected else "✓ No",
+                 C.B_RED if result.pii_detected else C.B_GREEN)
 
     # Response body
     print_divider("─", 65, C.CYAN)
@@ -149,7 +157,8 @@ def print_response_card(result):
     # Justification
     if result.justification:
         print()
-        print(f"  {C.GRAY}{C.ITALIC}Justification: {result.justification[:200]}{C.RESET}")
+        print(
+            f"  {C.GRAY}{C.ITALIC}Justification: {result.justification[:200]}{C.RESET}")
 
     # Source documents
     if result.source_documents:
@@ -190,7 +199,8 @@ def print_thinking(stage):
 
 class InteractiveAgent:
     def __init__(self, retriever: HybridRetriever, repo_root: str):
-        self.coordinator = PipelineCoordinator(retriever=retriever, repo_root=repo_root)
+        self.coordinator = PipelineCoordinator(
+            retriever=retriever, repo_root=repo_root)
         self.company = "Unknown"
         self.conversation_history = []
         self.turn_count = 0
@@ -207,41 +217,45 @@ class InteractiveAgent:
         }
 
         print()
-        print(f"  {C.B_CYAN}{C.BOLD}⏳ Processing (Groq API + Heuristics)...{C.RESET}")
-        
+        print(
+            f"  {C.B_CYAN}{C.BOLD}⏳ Processing (Groq API + Heuristics)...{C.RESET}")
+
         start = time.time()
 
         generator = await self.coordinator.process_ticket(row, stream=True)
-        
+
         # Stream the raw output to terminal as it arrives
         print(f"  {C.CYAN}STREAM:{C.RESET} {C.DIM}", end="", flush=True)
         final_result = None
-        
+
         async for item in generator:
             if isinstance(item, str):
                 # Print tokens live
                 print(item, end="", flush=True)
             else:
                 final_result = item
-                
-        print(f"{C.RESET}") # Reset formatting after stream
+
+        print(f"{C.RESET}")  # Reset formatting after stream
         elapsed = time.time() - start
 
         if final_result and final_result.response:
-            self.conversation_history.append({"role": "assistant", "content": final_result.response})
+            self.conversation_history.append(
+                {"role": "assistant", "content": final_result.response})
 
         if final_result:
             print_response_card(final_result)
-            
+
         print(f"  {C.GRAY}⏱  Processed in {elapsed:.3f}s{C.RESET}")
         print()
 
     def set_company(self, company: str):
         self.company = company
-        print(f"\n  {C.B_GREEN}✓{C.RESET} Company set to {C.BOLD}{company}{C.RESET}\n")
+        print(
+            f"\n  {C.B_GREEN}✓{C.RESET} Company set to {C.BOLD}{company}{C.RESET}\n")
 
     def show_history(self):
-        print(f"\n{C.BOLD}{C.B_CYAN}Conversation History ({len(self.conversation_history)} messages):{C.RESET}")
+        print(
+            f"\n{C.BOLD}{C.B_CYAN}Conversation History ({len(self.conversation_history)} messages):{C.RESET}")
         print_divider()
         for msg in self.conversation_history:
             role = msg["role"]
@@ -262,24 +276,29 @@ class InteractiveAgent:
 # ─── Main REPL ───────────────────────────────────────────────────────────────
 
 async def main():
-    parser = argparse.ArgumentParser(description="Interactive Support Agent CLI")
-    parser.add_argument("--company", default="Unknown", help="Set initial company context")
+    parser = argparse.ArgumentParser(
+        description="Interactive Support Agent CLI")
+    parser.add_argument("--company", default="Unknown",
+                        help="Set initial company context")
     args = parser.parse_args()
 
     # Suppress noisy logs in interactive mode
-    logging.basicConfig(level=logging.WARNING, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    logging.basicConfig(level=logging.WARNING,
+                        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 
     # Print logo
     os.system("clear" if os.name != "nt" else "cls")
+    import llm_client
     print(LOGO)
-    print(f"  {C.DIM}Model: {C.RESET}{C.BOLD}{GROQ_MODEL}{C.RESET}")
+    print(f"  {C.DIM}Provider: {C.RESET}{C.BOLD}{llm_client.LLM_PROVIDER}{C.RESET} | {C.DIM}Model: {C.RESET}{C.BOLD}{llm_client.LLM_MODEL}{C.RESET}")
     print(f"  {C.DIM}Type {C.B_GREEN}/help{C.RESET}{C.DIM} for commands, or just ask a question.{C.RESET}")
     print()
     print_divider("═", 65, C.GRAY)
     print()
 
     # Initialize retriever
-    print(f"  {C.B_YELLOW}⏳ Loading knowledge base...{C.RESET}", end="", flush=True)
+    print(f"  {C.B_YELLOW}⏳ Loading knowledge base...{C.RESET}",
+          end="", flush=True)
     repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     data_dir = os.path.join(repo_root, "data")
     retriever = HybridRetriever(data_dir=data_dir)
@@ -318,11 +337,20 @@ async def main():
                 print(LOGO)
                 continue
 
-            elif lower == "/model":
-                print(f"\n  {C.BOLD}Model:{C.RESET} {GROQ_MODEL}")
-                print(f"  {C.BOLD}Company:{C.RESET} {agent.company}")
-                print(f"  {C.BOLD}Turns:{C.RESET} {agent.turn_count}")
-                print()
+            elif lower.startswith("/model"):
+                parts = user_input.split(maxsplit=2)
+                if len(parts) == 3:
+                    provider = parts[1]
+                    model = parts[2]
+                    set_model_config(provider, model)
+                    print(f"\n  {C.B_GREEN}✓{C.RESET} Switched to {C.BOLD}{provider}{C.RESET} model {C.BOLD}{model}{C.RESET}\n")
+                else:
+                    import llm_client
+                    print(f"\n  {C.BOLD}Provider:{C.RESET} {llm_client.LLM_PROVIDER}")
+                    print(f"  {C.BOLD}Model:{C.RESET} {llm_client.LLM_MODEL}")
+                    print(f"  {C.BOLD}Company:{C.RESET} {agent.company}")
+                    print(f"  {C.BOLD}Turns:{C.RESET} {agent.turn_count}")
+                    print(f"  {C.DIM}To switch: /model <provider> <model_name>{C.RESET}\n")
                 continue
 
             elif lower == "/history":

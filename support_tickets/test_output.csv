@@ -1,7 +1,0 @@
-status,product_area,response,justification,request_type,confidence_score,source_documents,risk_level,pii_detected,language,actions_taken
-replied,DevPlatform,"Tests expire after 30 calendar days from creation. If you want to extend the test, go to Settings > General > Expiration and set a new end date.",,product_issue,1.0,data/devplatform/test-expiration-auto-archival-policy.md|data/devplatform/screen/managing-tests/8415416322-archiving-a-test.md|data/devplatform/screen/test-settings/9672590042-modifying-general-settings-for-tests.md,low,False,en,"[{""action"": ""Provided information on test expiration and auto-archival policy"", ""parameters"": {}}]"
-replied,DevPlatform,"To create a variant versus having a different test, consider the following:
-
-Test variants allow you to create a single assessment that adapts to different candidate profiles. You can design multiple variants within the same assessment to personalize the evaluation based on roles, skills, or other criteria.
-
-When deciding between creating a new test and using a variant, ask yourself if the content is relevant for all candidates or if it's specific to certain roles or skills. If it's specific, consider creating a variant.",,product_issue,0.8,data/devplatform/screen/managing-tests/7530103378-test-variants.md|data/devplatform/screen/managing-tests/6967597139-creating-a-new-test.md,low,False,en,"[{""action"": ""Provided relevant information about test variants and their use cases."", ""parameters"": {}}]"

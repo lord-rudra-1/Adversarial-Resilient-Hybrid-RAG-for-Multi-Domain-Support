@@ -11,6 +11,34 @@ from llm_client import call_gemini_async, call_llm_stream
 
 logger = logging.getLogger(__name__)
 
+VALID_REQUEST_TYPES = {"product_issue", "feature_request", "bug", "invalid"}
+VALID_RISK_LEVELS = {"low", "medium", "high", "critical"}
+
+def _normalize_bool(value: Any, default: bool = False) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.strip().lower() in {"true", "1", "yes", "y"}
+    if value is None:
+        return default
+    return bool(value)
+
+def _normalize_request_type(value: Any, status: str) -> str:
+    raw = str(value or "").strip().lower().replace("-", "_").replace(" ", "_")
+    if raw in VALID_REQUEST_TYPES:
+        return raw
+    if "feature" in raw:
+        return "feature_request"
+    if "bug" in raw or "error" in raw:
+        return "bug"
+    if "invalid" in raw or "adversarial" in raw or "prompt" in raw:
+        return "invalid"
+    return "invalid" if status == "escalated" and not raw else "product_issue"
+
+def _normalize_risk_level(value: Any) -> str:
+    raw = str(value or "").strip().lower()
+    return raw if raw in VALID_RISK_LEVELS else "medium"
+
 class PipelineCoordinator:
     def __init__(self, retriever: HybridRetriever, repo_root: str):
         self.retriever = retriever
@@ -70,7 +98,11 @@ class PipelineCoordinator:
                 risk_level="critical",
                 pii_detected=state.pii_present,
                 language="en",
-                actions_taken=[ActionCall(action="escalate_to_human", parameters={"priority": "urgent", "department": "security"})]
+                actions_taken=[ActionCall(action="escalate_to_human", parameters={
+                    "priority": "urgent",
+                    "department": "security",
+                    "summary": "Prompt injection or adversarial behavior detected."
+                })]
             )
             if stream:
                 async def _yield_output():
@@ -103,11 +135,7 @@ class PipelineCoordinator:
 
             return _stream_generator()
             
-        # For batch mode, we just consume the stream silently
-        final_output = None
-        async for chunk in self._generate_response_stream(state):
-            if not isinstance(chunk, str):
-                final_output = chunk
+        final_output = await self._generate_response_once(state)
                 
         if not final_output:
             final_output = self._fallback_output(state, "LLM generation failed or returned invalid format.")
@@ -125,12 +153,15 @@ class PipelineCoordinator:
         )
         
         return final_output
-        
-    async def _generate_response_stream(self, state: TicketState):
-        """Yields streaming string chunks, then returns the final AgentOutput."""
-        # Truncate each context chunk to keep prompt tiny
-        context_str = "\n\n".join([f"Document: {chunk['path']}\n{chunk['content'][:800]}" for chunk in state.retrieved_chunks])
-        
+
+    def _generation_payload(self, state: TicketState) -> tuple[str, str, Dict[str, Any]]:
+        # Keep context compact for live LLM TPM limits while still grounding the
+        # answer in the strongest retrieved evidence.
+        context_str = "\n\n".join([
+            f"Document: {chunk['path']}\n{chunk['content'][:500]}"
+            for chunk in state.retrieved_chunks[:2]
+        ])
+
         system_instruction = (
             "You are an expert customer support triage agent. Analyze the support ticket and context documents.\n"
             "Output a JSON object matching the AgentOutput schema.\n"
@@ -143,22 +174,23 @@ class PipelineCoordinator:
             "6. actions_taken must be a list of objects with 'action' and 'parameters'.\n"
             "7. confidence_score must be a float between 0.0 and 1.0.\n"
             "8. status must be exactly 'replied' or 'escalated'.\n"
-            "9. risk_level must be exactly 'low', 'medium', 'high', or 'critical'.\n"
-            "10. Do NOT tell the user to 'read the article' or 'follow the link'. You MUST extract and display the exact troubleshooting steps from the context directly in your response.\n"
-            "11. If the user's latest message is just 'thank you' or a greeting, simply acknowledge it politely (e.g., 'You\\'re welcome!'). Do NOT repeat previous troubleshooting steps."
+            "9. request_type must be exactly one of: product_issue, feature_request, bug, invalid.\n"
+            "10. risk_level must be exactly 'low', 'medium', 'high', or 'critical'.\n"
+            "11. Do NOT tell the user to 'read the article' or 'follow the link'. Extract useful steps from context directly.\n"
+            "12. If the user's latest message is just 'thank you' or a greeting, simply acknowledge it politely."
         )
-        
+
         prompt = f"""
         Company: {state.original_company}
         Subject: {state.original_subject}
-        
+
         History:
         {json.dumps(state.conversation_history, indent=2)}
-        
+
         Context:
         {context_str}
         """
-        
+
         schema = {
             "type": "object",
             "properties": {
@@ -166,16 +198,77 @@ class PipelineCoordinator:
                 "product_area": {"type": "string"},
                 "response": {"type": "string"},
                 "justification": {"type": "string"},
-                "request_type": {"type": "string"},
+                "request_type": {"type": "string", "enum": ["product_issue", "feature_request", "bug", "invalid"]},
                 "confidence_score": {"type": "number"},
                 "source_documents": {"type": "string"},
-                "risk_level": {"type": "string"},
+                "risk_level": {"type": "string", "enum": ["low", "medium", "high", "critical"]},
                 "pii_detected": {"type": "boolean"},
                 "language": {"type": "string"},
                 "actions_taken": {"type": "array"}
             },
             "required": ["status", "product_area", "response", "justification", "request_type", "confidence_score", "source_documents", "risk_level", "pii_detected", "language", "actions_taken"]
         }
+        return prompt, system_instruction, schema
+
+    def _normalize_agent_data(self, data: Dict[str, Any], state: TicketState) -> Dict[str, Any]:
+        raw_actions = data.get("actions_taken", [])
+        if isinstance(raw_actions, str):
+            try:
+                raw_actions = json.loads(raw_actions)
+            except Exception:
+                raw_actions = []
+        normalized_actions = []
+        if isinstance(raw_actions, list):
+            for action in raw_actions:
+                if isinstance(action, dict) and "action" in action:
+                    params = action.get("parameters", {})
+                    normalized_actions.append({
+                        "action": str(action["action"]),
+                        "parameters": params if isinstance(params, dict) else {}
+                    })
+        data["actions_taken"] = normalized_actions
+
+        try:
+            data["confidence_score"] = float(data.get("confidence_score", 0.5))
+        except Exception:
+            data["confidence_score"] = 0.5
+
+        data["pii_detected"] = _normalize_bool(data.get("pii_detected"), state.pii_present)
+        if data.get("status") not in ("replied", "escalated"):
+            data["status"] = "escalated"
+
+        for key in ["language", "product_area", "response", "justification", "request_type", "source_documents", "risk_level"]:
+            data.setdefault(key, "")
+            if not data[key]:
+                data[key] = ""
+        data["language"] = data["language"] or "en"
+        data["product_area"] = data["product_area"] or "general"
+        data["request_type"] = _normalize_request_type(data.get("request_type"), data["status"])
+        data["risk_level"] = _normalize_risk_level(data.get("risk_level"))
+        return data
+
+    async def _generate_response_once(self, state: TicketState) -> AgentOutput | None:
+        prompt, system_instruction, schema = self._generation_payload(state)
+        full_text = await call_gemini_async(
+            prompt=prompt,
+            system_instruction=system_instruction,
+            response_schema=schema,
+            max_tokens=700,
+            retries=5,
+        )
+        if not full_text:
+            return None
+        try:
+            from llm_client import _extract_json
+            data = json.loads(_extract_json(full_text))
+            return AgentOutput(**self._normalize_agent_data(data, state))
+        except Exception as e:
+            logger.error(f"Failed to decode LLM JSON: {e}\nRaw: {str(full_text)[:500]}")
+            return None
+        
+    async def _generate_response_stream(self, state: TicketState):
+        """Yields streaming string chunks, then returns the final AgentOutput."""
+        prompt, system_instruction, schema = self._generation_payload(state)
         
         # We will yield the raw text chunks as they arrive
         full_text = ""
@@ -200,37 +293,7 @@ class PipelineCoordinator:
             yield None
             return
         
-        # Normalize fields
-        raw_actions = data.get("actions_taken", [])
-        if isinstance(raw_actions, str):
-            try:
-                raw_actions = json.loads(raw_actions)
-            except:
-                raw_actions = []
-        normalized_actions = []
-        if isinstance(raw_actions, list):
-            for a in raw_actions:
-                if isinstance(a, dict) and "action" in a:
-                    normalized_actions.append({"action": str(a["action"]), "parameters": a.get("parameters", {})})
-        data["actions_taken"] = normalized_actions
-        
-        try:
-            data["confidence_score"] = float(data.get("confidence_score", 0.5))
-        except:
-            data["confidence_score"] = 0.5
-        
-        data["pii_detected"] = bool(data.get("pii_detected", state.pii_present))
-        if data.get("status") not in ("replied", "escalated"):
-            data["status"] = "escalated"
-        
-        for k in ["language", "product_area", "response", "justification", "request_type", "source_documents", "risk_level"]:
-            data.setdefault(k, "")
-            if not data[k]:
-                data[k] = ""
-        data["language"] = data["language"] or "en"
-        data["product_area"] = data["product_area"] or "general"
-        data["request_type"] = data["request_type"] or "product_issue"
-        data["risk_level"] = data["risk_level"] or "medium"
+        data = self._normalize_agent_data(data, state)
         
         try:
             yield AgentOutput(**data)
