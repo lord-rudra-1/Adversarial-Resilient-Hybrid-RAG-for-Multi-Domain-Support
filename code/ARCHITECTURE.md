@@ -71,5 +71,6 @@ I anticipate:
 - "Schrödinger's PII": Fake PII designed to trigger false positive escalations.
 - Conflicting corpus instructions (e.g., Doc A says refund is 30 days, Doc B says 90 days).
 
-**4. Unresolved Failure Mode**
-The context window might truncate extremely long multi-turn conversations before the crucial intent is reached. We did not implement recursive summarization for conversation history to keep latency low.
+**4. Unresolved Failure Modes**
+- **Context Truncation:** The context window might truncate extremely long multi-turn conversations before the crucial intent is reached. We did not implement recursive summarization for conversation history to keep latency low.
+- **Multilingual Adversarial Prompts:** While the safety heuristic checks for basic overrides, highly obfuscated or native prompt injections in different languages (e.g., instructions in Chinese to ignore rules) might bypass the heuristic and reach the LLM. I couldn't fix this with a dedicated translation/language-model safety pass because of the strict 3-minute total execution time constraint.
